@@ -230,6 +230,94 @@ def store_student_pattern(
         return False
 
 
+def save_agent_output(
+    student_id: str,
+    agent_name: str,
+    output_data: Dict[str, Any]
+) -> bool:
+    """
+    Save agent output to the agent_outputs JSONB column.
+
+    IMPLEMENTS: Cross-agent intelligence persistence
+
+    The agent_outputs column structure:
+    {
+        "assessment": {...},
+        "ec": {...},
+        "awards": {...},
+        "programs": {...},
+        "gameplan": {...},
+        "execution": {...}
+    }
+
+    Each agent writes to its own namespace, preserving other agents' data.
+
+    Args:
+        student_id: UUID - could be profile id OR user_id
+        agent_name: Agent namespace (e.g., "assessment", "ec", "awards")
+        output_data: Dict of agent output to persist
+
+    Returns:
+        True if successful, False otherwise
+    """
+    client = get_supabase_client()
+    if client is None:
+        print(f"⚠️ [save_agent_output] No Supabase client - skipping persistence")
+        return False
+
+    from datetime import datetime
+
+    # Add timestamp to output
+    output_data["last_calculated_at"] = datetime.utcnow().isoformat()
+
+    try:
+        # First, read current agent_outputs to merge
+        profile = read_student_profile(student_id)
+        if not profile:
+            print(f"⚠️ [save_agent_output] No profile found for {student_id}")
+            return False
+
+        # Get existing agent_outputs or initialize empty
+        current_outputs = profile.get("agent_outputs") or {}
+
+        # Merge new output into namespace
+        current_outputs[agent_name] = output_data
+
+        # Update profile with merged agent_outputs
+        success = update_student_profile(student_id, {
+            "agent_outputs": current_outputs
+        })
+
+        if success:
+            print(f"✅ [save_agent_output] Saved {agent_name} output for {student_id}")
+        return success
+
+    except Exception as e:
+        print(f"❌ [save_agent_output] Error: {e}")
+        return False
+
+
+def get_agent_output(student_id: str, agent_name: str) -> Optional[Dict[str, Any]]:
+    """
+    Retrieve a specific agent's output from the database.
+
+    Allows agents to access other agents' outputs for cross-agent intelligence.
+
+    Args:
+        student_id: UUID - could be profile id OR user_id
+        agent_name: Agent namespace (e.g., "assessment", "ec", "awards")
+
+    Returns:
+        Agent output dict or None if not found
+    """
+    profile = read_student_profile(student_id)
+    if not profile:
+        return None
+
+    agent_outputs = profile.get("agent_outputs") or {}
+    return agent_outputs.get(agent_name)
+
+
 def search_student_knowledge(
     student_id: str,
     query: str,
@@ -237,7 +325,7 @@ def search_student_knowledge(
 ) -> List[Dict[str, Any]]:
     """
     Semantic search across student's knowledge base.
-    
+
     IMPLEMENTS: DB-002 search
     """
     from backend.memory import search_knowledge

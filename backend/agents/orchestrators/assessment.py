@@ -44,6 +44,22 @@ from backend.tools.scoring.factors import (
     Factor,
 )
 
+# New Scoring Primitives (TYPE-085, TYPE-086, TYPE-083)
+from backend.tools.scoring.rubric_5d import (
+    calculate_5d_rubric,
+    Rubric5DOutput,
+    DimensionScore,
+)
+from backend.tools.scoring.gap_analyzer import (
+    analyze_gaps,
+    GapAnalysisOutput,
+    GradeLevel,
+)
+from backend.tools.scoring.potential_detector import (
+    detect_potential_indicators,
+    PotentialIndicatorOutput,
+)
+
 
 # =============================================================================
 # OUTPUT MODELS
@@ -84,24 +100,44 @@ class AssessmentOutput(BaseModel):
     # Core Scores
     ivy_plus_score: float = Field(..., description="Ivy+ Ready Score 0-100")
     percentile_rank: float = Field(..., description="Percentile in Ivy applicant pool")
-    
+
     # Category Breakdown
     category_scores: Dict[str, float] = Field(..., description="Scores by category")
-    
+
     # SFFA Rubric (Harvard-style)
     sffa_rubric: Dict[str, int] = Field(..., description="1-6 scale ratings")
-    
+
     # Archetype
     archetype: ArchetypeOutput
-    
+
     # Factors
     helping_factors: List[FactorOutput]
     holding_back_factors: List[FactorOutput]
     net_position: str = Field(..., description="STRONG, BALANCED, or NEEDS_WORK")
-    
+
     # Narrative Guidance (Legacy + New)
     narrative_guidance: Optional[Dict[str, Any]] = None
     narrative_identity: Optional[NarrativeIdentity] = None  # New V2 Schema
+
+    # === NEW SCORING PRIMITIVES (TYPE-085, TYPE-086, TYPE-083) ===
+
+    # TYPE-085: Jenny's 5-Dimension Rubric (/50)
+    rubric_5d: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Jenny's 5-dimension rubric scoring (Academics, Leadership, Service, Artifacts, Recognition)"
+    )
+
+    # TYPE-086: Gap Priority Analysis (P0/P1/P2/P3)
+    gap_analysis: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Gap priority analysis with P0-P3 categorization and closing actions"
+    )
+
+    # TYPE-083: Potential Indicators (Hidden Strengths, Untapped Opportunities)
+    potential_indicators: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Hidden strengths, untapped opportunities, and latent potential signals"
+    )
 
     # Transparancy & Quality
     completeness_score: float = Field(default=1.0, description="Profile completeness 0.0-1.0")
@@ -148,8 +184,8 @@ class AssessmentAgent(IvyAgent):
     def tier(self) -> int:
         return 1
 
-    def __init__(self, student_id: str):
-        super().__init__(student_id)
+    def __init__(self, student_profile: Dict[str, Any]):
+        super().__init__(student_profile)
         self.engine = IvyScoreEngine()
     
     def get_instructions(self) -> List[str]:
@@ -410,6 +446,42 @@ class AssessmentAgent(IvyAgent):
                 "personal": score_breakdown.sffa_rubric.personal_rating,
                 "overall": score_breakdown.sffa_rubric.overall_rating,
             }
+
+        # =================================================================
+        # NEW SCORING PRIMITIVES (TYPE-085, TYPE-086, TYPE-083)
+        # =================================================================
+
+        # 5a. TYPE-085: Jenny's 5-Dimension Rubric (/50)
+        rubric_5d_output = None
+        try:
+            rubric_5d_result = calculate_5d_rubric(profile)
+            # Use model_dump() to convert Pydantic model to dict
+            rubric_5d_output = rubric_5d_result.model_dump()
+        except Exception as e:
+            print(f"⚠️ TYPE-085 (5D Rubric) failed: {e}")
+
+        # 5b. TYPE-086: Gap Priority Analysis (P0/P1/P2/P3)
+        gap_analysis_output = None
+        try:
+            # Determine grade level from profile
+            grade_str = profile.get("demographics", {}).get("grade") or profile.get("grade") or "11"
+            grade_map = {"9": GradeLevel.FRESHMAN, "10": GradeLevel.SOPHOMORE, "11": GradeLevel.JUNIOR, "12": GradeLevel.SENIOR}
+            grade_level = grade_map.get(str(grade_str), GradeLevel.JUNIOR)
+
+            gap_result = analyze_gaps(profile, grade_level)
+            # Use model_dump() to convert Pydantic model to dict
+            gap_analysis_output = gap_result.model_dump()
+        except Exception as e:
+            print(f"⚠️ TYPE-086 (Gap Analysis) failed: {e}")
+
+        # 5c. TYPE-083: Potential Indicators (Hidden Strengths, Untapped Opportunities)
+        potential_output = None
+        try:
+            potential_result = detect_potential_indicators(profile)
+            # Use model_dump() to convert Pydantic model to dict
+            potential_output = potential_result.model_dump()
+        except Exception as e:
+            print(f"⚠️ TYPE-083 (Potential Indicators) failed: {e}")
         
         # 6. Get narrative guidance (constant layer - used as fallback)
         narrative_formula = get_narrative_formula(archetype_result.id)
@@ -460,6 +532,10 @@ class AssessmentAgent(IvyAgent):
             net_position=factor_analysis.net_position,
             narrative_guidance=narrative_guidance,
             narrative_identity=narrative_identity,
+            # New scoring primitives
+            rubric_5d=rubric_5d_output,
+            gap_analysis=gap_analysis_output,
+            potential_indicators=potential_output,
             completeness_score=completeness,
             analysis_notes=analysis_notes
         )
@@ -519,6 +595,6 @@ class AssessmentAgent(IvyAgent):
 # FACTORY FUNCTION (for registry)
 # =============================================================================
 
-def create_assessment_agent(student_id: str) -> AssessmentAgent:
+def create_assessment_agent(student_profile: Dict[str, Any]) -> AssessmentAgent:
     """Factory function for the agent registry"""
-    return AssessmentAgent(student_id)
+    return AssessmentAgent(student_profile)

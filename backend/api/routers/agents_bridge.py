@@ -180,7 +180,9 @@ async def delete_profile(student_id: str):
 async def score_assessment(request: AssessmentRequest):
     """
     Bridge Endpoint: Assessment Agent (Orchestrator)
-    Returns Scores + Archetype + Narrative Guidance
+    Returns Scores + Archetype + Narrative Guidance + Scoring Primitives
+
+    PERSISTENCE: Saves output to agent_outputs.assessment for cross-agent access
     """
     try:
         # Resolve Profile (Auto-Fetch)
@@ -200,13 +202,19 @@ async def score_assessment(request: AssessmentRequest):
 
         # Load Orchestrator
         agent = load_ivy_agent("orch_assessment", profile)
-        
+
         # Run Deterministic Assessment
         # We use .assess() directly to skip LLM overhead for pure math/logic
         output = agent.assess(profile)
-        
-        return APIResponse(success=True, data=output.model_dump())
-            
+
+        # PERSISTENCE: Save assessment output for cross-agent access
+        # This enables other agents to read assessment intelligence (5D rubric, gaps, potential)
+        from backend.tools.supabase_tools import save_agent_output
+        output_dict = output.model_dump()
+        save_agent_output(request.student_id, "assessment", output_dict)
+
+        return APIResponse(success=True, data=output_dict)
+
     except Exception as e:
         import traceback
         traceback.print_exc()

@@ -222,7 +222,8 @@ export function AgentDetailModal({
           </h2>
           <button
             onClick={onClose}
-            className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+            className="p-2 rounded-lg transition-colors hover:opacity-80"
+            style={{ backgroundColor: BRAND_COLORS.bgSecondary }}
           >
             <X size={20} style={{ color: BRAND_COLORS.textMuted }} />
           </button>
@@ -239,6 +240,7 @@ export function AgentDetailModal({
 
 // ============================================================
 // ASSESSMENT DETAIL VIEW
+// v6.0: Added TYPE-085, TYPE-086, TYPE-083 scoring primitives
 // ============================================================
 function AssessmentDetail({ data }: { data: Record<string, unknown> }) {
   // v5.2: Support both camelCase (from AssessmentAgentCard) and snake_case field names
@@ -248,8 +250,293 @@ function AssessmentDetail({ data }: { data: Record<string, unknown> }) {
   const identityMarkers = (data.identity_markers as string[]) || [];
   const brandStatement = data.brandStatement as string || data.brand_statement as string || data.rationale as string || '';
 
+  // v6.0: New Scoring Primitives (TYPE-085, TYPE-086, TYPE-083)
+  const ivyPlusScore = (data.ivy_plus_score as number) || 0;
+  const rubric5d = data.rubric_5d as { total_score?: number; coaching_priority?: string; academics?: { score?: number; gap?: number }; leadership?: { score?: number; gap?: number }; service?: { score?: number; gap?: number }; artifacts?: { score?: number; gap?: number }; recognition?: { score?: number; gap?: number } } | null;
+  const gapAnalysis = data.gap_analysis as { p0_gaps?: string[]; p1_gaps?: string[]; p2_gaps?: string[]; p3_gaps?: string[]; primary_focus?: string; top_3_actions?: Array<{action: string; expected_boost?: string; timeline?: string}> } | null;
+  // TYPE-083: Match actual API field names (skill_category, recommendation, etc.)
+  const potentialIndicators = data.potential_indicators as {
+    hidden_strengths?: Array<{
+      skill_category: string;
+      mentioned_keywords?: string[];
+      missing_demonstrations?: string[];
+      recommendation: string;
+      essay_angle?: string;
+    }>;
+    untapped_opportunities?: Array<{
+      opportunity_type?: string;
+      current_base?: string;
+      extension?: string;
+      expected_impact?: string;
+    }>;
+    latent_potential?: Array<{
+      signal_type: string;
+      evidence: string;
+      strength_description?: string;
+      unlock_strategy?: string;
+    }>;
+  } | null;
+
+  // Extract rubric dimensions
+  const rubricDimensions: Array<'academics' | 'leadership' | 'service' | 'artifacts' | 'recognition'> = ['academics', 'leadership', 'service', 'artifacts', 'recognition'];
+
   return (
     <div className="space-y-6">
+      {/* Ivy+ Score - Hero Display */}
+      {ivyPlusScore > 0 && (
+        <Section title="Ivy+ Ready Score" icon={<TrendingUp size={20} />}>
+          <div className="flex items-center gap-6">
+            <div className="text-5xl font-bold" style={{ color: BRAND_COLORS.primary }}>
+              {ivyPlusScore.toFixed(0)}
+            </div>
+            <div className="flex-1">
+              <div className="h-4 rounded-full" style={{ backgroundColor: BRAND_COLORS.borderLight }}>
+                <div
+                  className="h-full rounded-full transition-all"
+                  style={{
+                    width: `${ivyPlusScore}%`,
+                    backgroundColor: ivyPlusScore >= 70 ? BRAND_COLORS.success : ivyPlusScore >= 50 ? BRAND_COLORS.warning : BRAND_COLORS.error,
+                  }}
+                />
+              </div>
+              <p className="text-sm mt-1" style={{ color: BRAND_COLORS.textMuted }}>
+                {ivyPlusScore >= 70 ? 'Competitive' : ivyPlusScore >= 50 ? 'Developing' : 'Emerging'}
+              </p>
+            </div>
+          </div>
+        </Section>
+      )}
+
+      {/* TYPE-085: 5-Dimension Rubric */}
+      {rubric5d && (
+        <Section title="5-Dimension Rubric (Jenny's Framework)" icon={<Target size={20} />}>
+          <div className="space-y-4">
+            {/* Total Score */}
+            <div
+              className="flex items-center justify-between p-3 rounded-lg"
+              style={{ backgroundColor: BRAND_COLORS.secondaryBg }}
+            >
+              <span className="font-medium" style={{ color: BRAND_COLORS.secondary }}>Total Score</span>
+              <span className="text-2xl font-bold" style={{ color: BRAND_COLORS.secondary }}>
+                {(rubric5d.total_score as number) || 0}/50
+              </span>
+            </div>
+
+            {/* Dimension Bars */}
+            <div className="space-y-3">
+              {rubricDimensions.map((dim) => {
+                const dimData = rubric5d?.[dim] || { score: 0, gap: 0 };
+                const score = dimData.score || 0;
+                const gap = dimData.gap || 0;
+                const isP0 = gap >= 5; // High gap = P0 priority
+
+                return (
+                  <div key={dim} className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium capitalize" style={{ color: BRAND_COLORS.textPrimary }}>
+                        {dim}
+                        {isP0 && (
+                          <span
+                            className="ml-2 px-1.5 py-0.5 text-xs rounded"
+                            style={{ backgroundColor: BRAND_COLORS.errorBg, color: BRAND_COLORS.error }}
+                          >
+                            P0
+                          </span>
+                        )}
+                      </span>
+                      <span className="text-sm font-bold" style={{ color: BRAND_COLORS.textHeading }}>{score}/10</span>
+                    </div>
+                    <div className="h-2 rounded-full" style={{ backgroundColor: BRAND_COLORS.borderLight }}>
+                      <div
+                        className="h-full rounded-full transition-all"
+                        style={{
+                          width: `${score * 10}%`,
+                          backgroundColor: score >= 8 ? BRAND_COLORS.success : score >= 5 ? BRAND_COLORS.warning : BRAND_COLORS.error,
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Coaching Priority */}
+            {rubric5d.coaching_priority && (
+              <div
+                className="mt-3 p-2 rounded"
+                style={{ backgroundColor: BRAND_COLORS.bgWarning, border: `1px solid ${BRAND_COLORS.warning}40` }}
+              >
+                <span className="text-sm" style={{ color: BRAND_COLORS.warning }}>
+                  <strong>Priority Focus:</strong> {String(rubric5d.coaching_priority).replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                </span>
+              </div>
+            )}
+          </div>
+        </Section>
+      )}
+
+      {/* TYPE-086: Gap Priority Analysis */}
+      {gapAnalysis && (
+        <Section title="Gap Priority Analysis" icon={<AlertTriangle size={20} />}>
+          <div className="space-y-4">
+            {/* Priority Summary */}
+            <div className="grid grid-cols-4 gap-2">
+              {[
+                { label: 'P0', count: gapAnalysis.p0_gaps?.length || 0, bg: BRAND_COLORS.errorBg, text: BRAND_COLORS.error, border: `${BRAND_COLORS.error}40` },
+                { label: 'P1', count: gapAnalysis.p1_gaps?.length || 0, bg: BRAND_COLORS.bgWarning, text: BRAND_COLORS.warning, border: `${BRAND_COLORS.warning}40` },
+                { label: 'P2', count: gapAnalysis.p2_gaps?.length || 0, bg: BRAND_COLORS.bgWarning, text: BRAND_COLORS.warning, border: `${BRAND_COLORS.warning}40` },
+                { label: 'P3', count: gapAnalysis.p3_gaps?.length || 0, bg: BRAND_COLORS.bgSuccess, text: BRAND_COLORS.success, border: `${BRAND_COLORS.success}40` },
+              ].map(({ label, count, bg, text, border }) => (
+                <div
+                  key={label}
+                  className="p-3 rounded-lg text-center"
+                  style={{ backgroundColor: bg, color: text, border: `1px solid ${border}` }}
+                >
+                  <div className="text-2xl font-bold">{count}</div>
+                  <div className="text-xs font-medium">{label} Gaps</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Primary Focus */}
+            {gapAnalysis.primary_focus && (
+              <div
+                className="p-3 rounded-lg"
+                style={{ backgroundColor: BRAND_COLORS.errorBg, border: `1px solid ${BRAND_COLORS.error}40` }}
+              >
+                <div className="flex items-center gap-2">
+                  <AlertTriangle size={16} style={{ color: BRAND_COLORS.error }} />
+                  <span className="font-medium" style={{ color: BRAND_COLORS.error }}>Primary Focus</span>
+                </div>
+                <p className="mt-1 text-sm capitalize" style={{ color: BRAND_COLORS.error }}>
+                  {String(gapAnalysis.primary_focus).replace(/_/g, ' ')}
+                </p>
+              </div>
+            )}
+
+            {/* Top Actions */}
+            {gapAnalysis.top_3_actions && gapAnalysis.top_3_actions.length > 0 && (
+              <div className="space-y-2">
+                <h4 className="text-sm font-medium" style={{ color: BRAND_COLORS.textSecondary }}>Recommended Actions</h4>
+                {gapAnalysis.top_3_actions.slice(0, 3).map((action, i) => (
+                  <div
+                    key={i}
+                    className="p-2 rounded"
+                    style={{ backgroundColor: BRAND_COLORS.bgSecondary, border: `1px solid ${BRAND_COLORS.borderLight}` }}
+                  >
+                    <div className="text-sm font-medium" style={{ color: BRAND_COLORS.textPrimary }}>{action.action}</div>
+                    <div className="text-xs mt-1" style={{ color: BRAND_COLORS.textMuted }}>
+                      {action.expected_boost && <span>Impact: {action.expected_boost}</span>}
+                      {action.timeline && <span> • {action.timeline}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </Section>
+      )}
+
+      {/* TYPE-083: Potential Indicators */}
+      {potentialIndicators && (
+        <Section title="Hidden Potential" icon={<Lightbulb size={20} />}>
+          <div className="space-y-4">
+            {/* Hidden Strengths - Skills mentioned but not showcased */}
+            {potentialIndicators.hidden_strengths && potentialIndicators.hidden_strengths.length > 0 && (
+              <div>
+                <h4 className="text-sm font-medium mb-2" style={{ color: BRAND_COLORS.success }}>
+                  Hidden Strengths ({potentialIndicators.hidden_strengths.length})
+                </h4>
+                <div className="space-y-2">
+                  {potentialIndicators.hidden_strengths.slice(0, 6).map((hs, i) => (
+                    <div
+                      key={i}
+                      className="p-3 rounded-lg"
+                      style={{ backgroundColor: BRAND_COLORS.bgSuccess, border: `1px solid ${BRAND_COLORS.success}40` }}
+                    >
+                      <div className="font-medium capitalize" style={{ color: BRAND_COLORS.success }}>
+                        {hs.skill_category?.replace(/_/g, ' ')}
+                      </div>
+                      {hs.mentioned_keywords && hs.mentioned_keywords.length > 0 && (
+                        <div className="text-xs mt-1" style={{ color: BRAND_COLORS.success }}>
+                          Keywords: {hs.mentioned_keywords.join(', ')}
+                        </div>
+                      )}
+                      {hs.recommendation && (
+                        <div className="text-sm mt-2 font-medium" style={{ color: BRAND_COLORS.success }}>
+                          → {hs.recommendation}
+                        </div>
+                      )}
+                      {hs.essay_angle && (
+                        <div className="text-xs mt-1 italic" style={{ color: BRAND_COLORS.textMuted }}>
+                          {hs.essay_angle}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Latent Potential - Growth signals */}
+            {potentialIndicators.latent_potential && potentialIndicators.latent_potential.length > 0 && (
+              <div>
+                <h4 className="text-sm font-medium mb-2" style={{ color: BRAND_COLORS.secondary }}>
+                  Latent Potential
+                </h4>
+                <div className="space-y-2">
+                  {potentialIndicators.latent_potential.slice(0, 4).map((lp, i) => (
+                    <div
+                      key={i}
+                      className="p-3 rounded-lg"
+                      style={{ backgroundColor: BRAND_COLORS.secondaryBg, border: `1px solid ${BRAND_COLORS.secondary}40` }}
+                    >
+                      <div className="font-medium capitalize" style={{ color: BRAND_COLORS.secondary }}>
+                        {lp.signal_type?.replace(/_/g, ' ')}
+                      </div>
+                      {lp.strength_description && (
+                        <div className="text-sm mt-1" style={{ color: BRAND_COLORS.secondary }}>
+                          {lp.strength_description}
+                        </div>
+                      )}
+                      {lp.unlock_strategy && (
+                        <div className="text-xs mt-2" style={{ color: BRAND_COLORS.secondary }}>
+                          → {lp.unlock_strategy}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Untapped Opportunities */}
+            {potentialIndicators.untapped_opportunities && potentialIndicators.untapped_opportunities.length > 0 && (
+              <div>
+                <h4 className="text-sm font-medium mb-2" style={{ color: BRAND_COLORS.info }}>Untapped Opportunities</h4>
+                <div className="space-y-2">
+                  {potentialIndicators.untapped_opportunities.slice(0, 4).map((uo, i) => (
+                    <div
+                      key={i}
+                      className="p-3 rounded-lg"
+                      style={{ backgroundColor: BRAND_COLORS.infoBg, border: `1px solid ${BRAND_COLORS.info}40` }}
+                    >
+                      <div className="text-sm" style={{ color: BRAND_COLORS.info }}>{uo.current_base || uo.opportunity_type}</div>
+                      {uo.extension && (
+                        <div className="font-medium mt-1" style={{ color: BRAND_COLORS.info }}>→ {uo.extension}</div>
+                      )}
+                      {uo.expected_impact && (
+                        <div className="text-xs mt-1" style={{ color: BRAND_COLORS.info }}>Impact: {uo.expected_impact}</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </Section>
+      )}
+
       {/* Narrative DNA */}
       <Section title="Narrative DNA" icon={<Brain size={20} />}>
         <p className="text-base leading-relaxed" style={{ color: BRAND_COLORS.textPrimary }}>
@@ -303,7 +590,7 @@ function AssessmentDetail({ data }: { data: Record<string, unknown> }) {
       {/* Confidence Score */}
       <Section title="Confidence Score" icon={<TrendingUp size={20} />}>
         <div className="flex items-center gap-4">
-          <div className="flex-1 h-4 rounded-full bg-gray-200">
+          <div className="flex-1 h-4 rounded-full" style={{ backgroundColor: BRAND_COLORS.borderLight }}>
             <div
               className="h-full rounded-full transition-all"
               style={{

@@ -192,6 +192,78 @@ export function useAssessmentEnhancement(profileId: string | null) {
   });
 }
 
+/**
+ * Full Assessment with all scoring primitives
+ * 🆕 V3: Includes Ivy+ Score, 5D Rubric, Gap Analysis, Potential Indicators
+ */
+export function useFullAssessment(profileId: string | null) {
+  return useQuery({
+    queryKey: ['assessment', 'full', profileId],
+    queryFn: async () => {
+      if (!profileId) return null;
+      try {
+        const res = await agnoApi.getFullAssessment(profileId);
+        const data = (res as any).data;
+
+        return {
+          // Core scores
+          ivy_plus_score: data?.ivy_plus_score || 0,
+          percentile_rank: data?.percentile_rank || 0,
+          category_scores: data?.category_scores || {},
+          sffa_rubric: data?.sffa_rubric || {},
+
+          // Archetype (full V2 data from assess())
+          archetype: data?.archetype || null,
+
+          // Factors
+          helping_factors: data?.helping_factors || [],
+          holding_back_factors: data?.holding_back_factors || [],
+          net_position: data?.net_position || 'BALANCED',
+
+          // Narrative
+          narrative_guidance: data?.narrative_guidance || null,
+          narrative_identity: data?.narrative_identity || null,
+
+          // 🆕 NEW SCORING PRIMITIVES
+          // TYPE-085: Jenny's 5D Rubric (/50)
+          rubric_5d: data?.rubric_5d || null,
+
+          // TYPE-086: Gap Priority Analysis (P0/P1/P2/P3)
+          gap_analysis: data?.gap_analysis || null,
+
+          // TYPE-083: Potential Indicators (Hidden Strengths, Untapped Opportunities)
+          potential_indicators: data?.potential_indicators || null,
+
+          // Quality
+          completeness_score: data?.completeness_score || 0,
+          analysis_notes: data?.analysis_notes || [],
+        };
+      } catch (e) {
+        console.warn('[useFullAssessment] Fallback:', e);
+        return {
+          ivy_plus_score: 0,
+          percentile_rank: 0,
+          category_scores: {},
+          sffa_rubric: {},
+          archetype: null,
+          helping_factors: [],
+          holding_back_factors: [],
+          net_position: 'BALANCED',
+          narrative_guidance: null,
+          narrative_identity: null,
+          rubric_5d: null,
+          gap_analysis: null,
+          potential_indicators: null,
+          completeness_score: 0,
+          analysis_notes: [],
+        };
+      }
+    },
+    enabled: !!profileId,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+}
+
 // ============================================================================
 // 2. GAME PLAN AGENT HOOKS
 // ============================================================================
@@ -519,6 +591,7 @@ export default {
   useNarrativeDNA,
   useIdentitySeeds,
   useAssessmentEnhancement,
+  useFullAssessment,  // 🆕 V3: Full assessment with scoring primitives
   useGamePlan,
   useFilteredActivities,
   useExecutionDebtScore,
