@@ -1,0 +1,91 @@
+{
+    "metadata": {
+        "source": "Jenny Duan x Huda coaching engagement",
+        "session": "W001_GamePlan_Session_July_28_2023",
+        "extraction_date": "2026-01-27",
+        "notes": "Real data extracted from coaching session transcripts"
+    },
+    "student_profile": {
+        "id": "huda-real-001",
+        "name": "Huda",
+        "identity": {
+            "grade": "11",
+            "school_type": "Public",
+            "location": "California suburb",
+            "personality": "quiet/introverted",
+            "social": "small collaborative group"
+        },
+        "aptitude": {
+            "gpa_weighted": 4.3,
+            "gpa_unweighted": 4.0,
+            "sat_total": null,
+            "ap_count": 11,
+            "ap_avg_score": null,
+            "academic_awards": []
+        },
+        "passion": {
+            "leadership_level": null,
+            "ec_commitment_years": 4,
+            "ec_hours_weekly": 8,
+            "project_impact": 50,
+            "research_level": null,
+            "ec_awards": [],
+            "interests": [
+                "Computer Science",
+                "Film",
+                "Game Development",
+                "AI/ML",
+                "Journalism",
+                "Women in STEM"
+            ]
+        },
+        "community": {
+            "service_hours": 20,
+            "service_leadership": "PARTICIPANT",
+            "community_impact": 10
+        },
+        "narrative": {
+            "spike": "Digital Storyteller democratizing tech",
+            "three_pillars": {
+                "aptitude": "Technology, CS, AI",
+                "passion": "Games, Videography, Storytelling",
+                "community": "Education, AI advocacy, Muslim community"
+            }
+        },
+        "intended_major": "Computer Science",
+        "demographics": {
+            "first_gen": true,
+            "recruited_athlete": false,
+            "identity_elements": [
+                "Muslim",
+                "Female",
+                "Indian-American"
+            ]
+        }
+    },
+    "jenny_rubric": {
+        "academics": 8,
+        "leadership": 2,
+        "awards": 0,
+        "service": 1,
+        "narrative": 3,
+        "total": 14,
+        "max": 50,
+        "notes": "Never shown but calculated during session"
+    },
+    "jenny_probabilities": {
+        "stanford_cs": "<1%",
+        "mit": "<2%",
+        "usc_games": "15% if optimized"
+    },
+    "p0_gaps": [
+        "No academic awards",
+        "No leadership positions",
+        "Minimal service hours"
+    ],
+    "synthesis": {
+        "unified_identity": "Natural-born storyteller and creator",
+        "spike_phrase": "Interactive Media / Tech-Journalism / Game Development + Storytelling",
+        "core_insight": "Code can be a medium for sharing stories"
+    }
+}

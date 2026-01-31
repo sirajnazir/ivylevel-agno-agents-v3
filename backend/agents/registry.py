@@ -42,6 +42,8 @@ AGENT_MAP: Dict[str, str] = {
     "spec_ec": "backend.agents.specialists.ec.ECAgent",
     "spec_programs": "backend.agents.specialists.programs.ProgramsAgent",
     "spec_narrative": "backend.agents.specialists.narrative.NarrativeAgent",
+    "spec_academic": "backend.agents.specialists.academic.AcademicAgent",
+    "spec_opportunity": "backend.agents.specialists.opportunity.OpportunityAgent",
     
     # -------------------------------------------------------------------------
     # TIER 4: INTELLIGENCE (Middleware)
@@ -54,17 +56,16 @@ AGENT_MAP: Dict[str, str] = {
 # FACTORY FUNCTION
 # =============================================================================
 
-def load_agent(agent_key: str, student_profile: Dict[str, Any]) -> Agent:
+def load_agent(agent_key: str, student_id: str) -> Agent:
     """
     Factory that hydrates any agent based on its Registry Key.
+    Returns the built Agno Agent for use with agent.run().
     
     This is the ONLY way to instantiate agents in the system.
     
     Args:
-        agent_key: The registry key (e.g., "orch_assessment", "spec_awards")
-        student_profile: Dict containing at minimum:
-            - id: Student UUID
-            - archetype: Student archetype
+        agent_key: The registry key (e.g., "orch_assessment", "spec_ec")
+        student_id: Student UUID string
             
     Returns:
         A fully configured Agno Agent ready for execution
@@ -74,9 +75,31 @@ def load_agent(agent_key: str, student_profile: Dict[str, Any]) -> Agent:
         ImportError: If agent class cannot be loaded
         
     Example:
-        >>> profile = {"id": "uuid-123", "archetype": "Futuristic CEO"}
-        >>> agent = load_agent("orch_assessment", profile)
+        >>> agent = load_agent("orch_assessment", "uuid-123")
         >>> response = agent.run("Analyze my profile")
+    """
+    ivy_agent = load_ivy_agent(agent_key, student_id)
+    return ivy_agent.build()
+
+
+def load_ivy_agent(agent_key: str, student_id_or_profile):
+    """
+    Factory that returns the IvyAgent instance (before build).
+    Use this when you need direct access to agent methods like .assess() or .run().
+    
+    Args:
+        agent_key: The registry key (e.g., "orch_assessment", "spec_ec")
+        student_id_or_profile: Either a student UUID string OR a profile dict with 'id' field
+            
+    Returns:
+        An IvyAgent instance (NOT the Agno Agent - call .build() for that)
+        
+    Example:
+        >>> ivy_agent = load_ivy_agent("orch_assessment", "student-123")
+        >>> result = ivy_agent.assess(profile_data)  # Direct method call
+        
+        >>> ivy_agent = load_ivy_agent("spec_narrative", {"id": "student-123", "archetype": "SCHOLAR"})
+        >>> result = ivy_agent.generate_identity()
     """
     if agent_key not in AGENT_MAP:
         available = ", ".join(sorted(AGENT_MAP.keys()))
@@ -105,9 +128,13 @@ def load_agent(agent_key: str, student_profile: Dict[str, Any]) -> Agent:
             f"Error: {e}"
         )
     
-    # Instantiate and build
-    ivy_agent = agent_class(student_profile)
-    return ivy_agent.build()
+    # Instantiate with either student_id or profile
+    if isinstance(student_id_or_profile, str):
+        # Legacy: just student_id -> Wrap in dict for IvyAgent
+        return agent_class({"id": student_id_or_profile})
+    else:
+        # New: full profile dict
+        return agent_class(student_id_or_profile)
 
 
 def list_agents() -> Dict[str, str]:

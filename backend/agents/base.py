@@ -103,7 +103,7 @@ class IvyAgent(ABC):
         Default: Claude 3.5 Sonnet (Primary reasoning model)
         Override for specialized model needs.
         """
-        return Claude(id="claude-3-5-sonnet-20241022")
+        return Claude(id="claude-3-opus-20240229")
     
     def get_description(self) -> str:
         """
@@ -162,3 +162,11 @@ class IvyAgent(ABC):
     
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__} tier={self.tier} id={self.agent_id}>"
+
+    def run(self, message: str = "", stream: bool = False, **kwargs) -> Any:
+        """
+        Standard execution of the Agno Agent.
+        Builds the agent and runs it.
+        """
+        agent_instance = self.build()
+        return agent_instance.run(message, stream=stream, **kwargs)

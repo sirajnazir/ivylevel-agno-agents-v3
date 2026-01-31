@@ -1,0 +1,1194 @@
+'use client';
+
+/**
+ * Frame 5: Game Plan Display
+ *
+ * Displays the personalized game plan generated from the student's profile.
+ * Shows phases, actions, quick wins, and summary.
+ *
+ * STYLING: Uses BRAND_COLORS constants for consistent Ivylevel branding.
+ * @version 1.0.0
+ */
+
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import dynamic from 'next/dynamic';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useStudentStore } from '@/lib/store/useStudentStore';
+import { useSessionStore } from '@/lib/store/useSessionStore';
+import { useResultsStore } from '@/lib/store/useResultsStore';
+import { useSquadStore } from '@/lib/store/useSquadStore';  // NEW: Squad data
+import { AgentBadge } from '@/components/squad';  // NEW: Agent attribution
+import { useAuth } from '@/lib/auth/AuthProvider';
+import { generateGamePlan, getStrengthBasedRecommendations } from '@/lib/gamePlan/gamePlanEngine';
+import { saveGamePlan, type GamePlanData } from '@/lib/services/gamePlanService';
+import type { GamePlan, GamePlanAction, GamePlanPhase, ActionPriority } from '@/lib/gamePlan/gamePlanEngine';
+import { BRAND_COLORS } from '@/lib/constants/brand';
+import {
+  ChevronRight,
+  ChevronLeft,
+  ChevronDown,
+  ChevronUp,
+  Target,
+  Zap,
+  Clock,
+  AlertTriangle,
+  CheckCircle,
+  Star,
+  BookOpen,
+  Award,
+  Users,
+  Lightbulb,
+  Calendar,
+  TrendingUp,
+  ArrowRight,
+  Trophy,
+  Sparkles,
+} from 'lucide-react';
+
+// Dynamically import coach booking component to avoid SSR issues
+const CoachBooking = dynamic(
+  () => import('@/components/booking/CoachBooking').catch((err) => {
+    console.error('Failed to load CoachBooking:', err);
+    return { default: () => null };
+  }),
+  { ssr: false }
+);
+
+// ============================================================================
+// CONSTANTS
+// ============================================================================
+
+const PRIORITY_STYLES: Record<ActionPriority, { bg: string; border: string; badge: string }> = {
+  critical: {
+    bg: 'rgba(220, 38, 38, 0.08)',
+    border: '#dc2626',
+    badge: '#dc2626',
+  },
+  high: {
+    bg: 'rgba(255, 74, 35, 0.08)',
+    border: BRAND_COLORS.primary,
+    badge: BRAND_COLORS.primary,
+  },
+  medium: {
+    bg: 'rgba(217, 119, 6, 0.08)',
+    border: '#d97706',
+    badge: '#d97706',
+  },
+  low: {
+    bg: 'rgba(107, 114, 128, 0.08)',
+    border: '#6b7280',
+    badge: '#6b7280',
+  },
+};
+
+const CATEGORY_ICONS: Record<string, React.ReactNode> = {
+  academics: <BookOpen size={18} />,
+  activities: <Sparkles size={18} />,
+  leadership: <Trophy size={18} />,
+  service: <Users size={18} />,
+  testing: <Target size={18} />,
+  awards: <Award size={18} />,
+  narrative: <Lightbulb size={18} />,
+  research: <TrendingUp size={18} />,
+  summer: <Calendar size={18} />,
+};
+
+// ============================================================================
+// SUB-COMPONENTS
+// ============================================================================
+
+interface ActionCardProps {
+  action: GamePlanAction;
+  expanded: boolean;
+  onToggle: () => void;
+  agentId?: 'academic' | 'ec' | 'awards' | 'programs';  // NEW: For agent attribution
+}
+
+function ActionCard({ action, expanded, onToggle, agentId }: ActionCardProps) {
+  const styles = PRIORITY_STYLES[action.priority];
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      style={{
+        backgroundColor: styles.bg,
+        border: `1px solid ${styles.border}`,
+        borderRadius: 12,
+        overflow: 'hidden',
+        marginBottom: 12,
+      }}
+    >
+      {/* Header - always visible */}
+      <button
+        onClick={onToggle}
+        style={{
+          width: '100%',
+          padding: 16,
+          display: 'flex',
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+          background: 'none',
+          border: 'none',
+          cursor: 'pointer',
+          textAlign: 'left',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flex: 1 }}>
+          {/* Icon */}
+          <div
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 10,
+              backgroundColor: 'rgba(255, 255, 255, 0.8)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 20,
+              flexShrink: 0,
+            }}
+          >
+            {action.icon}
+          </div>
+
+          {/* Content */}
+          <div style={{ flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+              <h4
+                style={{
+                  fontSize: 16,
+                  fontWeight: 600,
+                  color: BRAND_COLORS.textHeading,
+                  margin: 0,
+                }}
+              >
+                {action.title}
+              </h4>
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  color: 'white',
+                  backgroundColor: styles.badge,
+                  padding: '2px 6px',
+                  borderRadius: 4,
+                }}
+              >
+                {action.priority}
+              </span>
+
+              {/* NEW: Agent Attribution Badge */}
+              {agentId && <AgentBadge agentId={agentId} variant="compact" />}
+            </div>
+            <p
+              style={{
+                fontSize: 14,
+                color: BRAND_COLORS.textPrimary,
+                margin: 0,
+                lineHeight: 1.4,
+              }}
+            >
+              {action.description}
+            </p>
+
+            {/* Meta info */}
+            <div style={{ display: 'flex', gap: 16, marginTop: 8 }}>
+              <span
+                style={{
+                  fontSize: 12,
+                  color: BRAND_COLORS.textMuted,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+              >
+                <Clock size={12} />
+                {action.timeCommitment}
+              </span>
+              {action.deadline && (
+                <span
+                  style={{
+                    fontSize: 12,
+                    color: BRAND_COLORS.textMuted,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                  }}
+                >
+                  <Calendar size={12} />
+                  {action.deadline}
+                </span>
+              )}
+              <span
+                style={{
+                  fontSize: 12,
+                  color: BRAND_COLORS.success,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+              >
+                <TrendingUp size={12} />+{action.impact.points} pts
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Expand indicator */}
+        <div style={{ color: BRAND_COLORS.textMuted, marginLeft: 8 }}>
+          {expanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+        </div>
+      </button>
+
+      {/* Expanded content */}
+      <AnimatePresence>
+        {expanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            style={{
+              overflow: 'hidden',
+              borderTop: `1px solid ${styles.border}`,
+            }}
+          >
+            <div style={{ padding: 16, backgroundColor: 'rgba(255, 255, 255, 0.5)' }}>
+              {/* Tips */}
+              <div style={{ marginBottom: 16 }}>
+                <h5
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: BRAND_COLORS.textHeading,
+                    marginBottom: 8,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  <Lightbulb size={14} />
+                  Tips for Success
+                </h5>
+                <ul
+                  style={{
+                    margin: 0,
+                    padding: 0,
+                    listStyle: 'none',
+                  }}
+                >
+                  {action.tips.map((tip, i) => (
+                    <li
+                      key={i}
+                      style={{
+                        fontSize: 13,
+                        color: BRAND_COLORS.textPrimary,
+                        marginBottom: 6,
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: 8,
+                      }}
+                    >
+                      <CheckCircle
+                        size={14}
+                        style={{ color: BRAND_COLORS.success, flexShrink: 0, marginTop: 2 }}
+                      />
+                      {tip}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* Resources */}
+              {action.resources && action.resources.length > 0 && (
+                <div>
+                  <h5
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 600,
+                      color: BRAND_COLORS.textHeading,
+                      marginBottom: 8,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}
+                  >
+                    <BookOpen size={14} />
+                    Resources
+                  </h5>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                    {action.resources.map((resource, i) => (
+                      <span
+                        key={i}
+                        style={{
+                          fontSize: 12,
+                          color: resource.url ? BRAND_COLORS.primary : BRAND_COLORS.textPrimary,
+                          backgroundColor: 'white',
+                          padding: '4px 10px',
+                          borderRadius: 6,
+                          border: `1px solid ${BRAND_COLORS.borderLight}`,
+                        }}
+                      >
+                        {resource.name}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
+  );
+}
+
+interface PhaseCardProps {
+  phase: GamePlanPhase;
+  isActive: boolean;
+  onSelect: () => void;
+}
+
+function PhaseCard({ phase, isActive, onSelect }: PhaseCardProps) {
+  return (
+    <button
+      onClick={onSelect}
+      style={{
+        padding: '12px 16px',
+        borderRadius: 10,
+        border: `2px solid ${isActive ? BRAND_COLORS.primary : BRAND_COLORS.borderLight}`,
+        backgroundColor: isActive ? BRAND_COLORS.primaryBg : 'white',
+        cursor: 'pointer',
+        textAlign: 'left',
+        transition: 'all 0.2s',
+        minWidth: 180,
+      }}
+    >
+      <h4
+        style={{
+          fontSize: 14,
+          fontWeight: 600,
+          color: isActive ? BRAND_COLORS.primary : BRAND_COLORS.textHeading,
+          margin: 0,
+          marginBottom: 4,
+        }}
+      >
+        {phase.title}
+      </h4>
+      <p
+        style={{
+          fontSize: 12,
+          color: BRAND_COLORS.textMuted,
+          margin: 0,
+        }}
+      >
+        {phase.timeframe} • {phase.actions.length} actions
+      </p>
+    </button>
+  );
+}
+
+// ============================================================================
+// MAIN COMPONENT
+// ============================================================================
+
+interface Frame5GamePlanProps {
+  onComplete?: () => void;
+}
+
+// Feature flag for Supabase persistence
+const ENABLE_SUPABASE_PERSISTENCE =
+  process.env.NEXT_PUBLIC_ENABLE_SUPABASE_PERSISTENCE === 'true';
+
+export function Frame5GamePlan({ onComplete }: Frame5GamePlanProps) {
+  const { profile } = useStudentStore();
+  const { nextFrame, completeFrame } = useSessionStore();
+  const { user, isAuthenticated } = useAuth();
+  const existingResults = useResultsStore((s) => s.results);
+
+  // NEW: Squad data from real agent APIs
+  const academicData = useSquadStore((s) => s.academicData);
+  const ecData = useSquadStore((s) => s.ecData);
+  const awardsData = useSquadStore((s) => s.awardsData);
+  const programsData = useSquadStore((s) => s.programsData);
+
+  const [activePhaseIndex, setActivePhaseIndex] = useState(0);
+  const [expandedActions, setExpandedActions] = useState<Set<string>>(new Set());
+  const [showSummary, setShowSummary] = useState(true);
+  const hasSavedRef = useRef(false);
+
+  // Log squad data for debugging
+  useEffect(() => {
+    console.log('[Frame5GamePlan] Squad data loaded:', {
+      academic: academicData,
+      ec: ecData,
+      awards: awardsData,
+      programs: programsData,
+    });
+  }, [academicData, ecData, awardsData, programsData]);
+
+  // Generate game plan with error handling
+  const gamePlan = useMemo(() => {
+    try {
+      console.log('Frame5GamePlan: Generating game plan with profile:', profile);
+      const plan = generateGamePlan(profile);
+
+      // Override summary with API-based scores if available
+      if (existingResults?.ivy_ready_score?.category_scores) {
+        const scores = existingResults.ivy_ready_score.category_scores;
+        const STRENGTH_THRESHOLD = 75;
+        const IMPROVEMENT_THRESHOLD = 60;
+
+        const strengthAreas: string[] = [];
+        const improvementAreas: string[] = [];
+
+        // Aptitude
+        if (scores.aptitude >= STRENGTH_THRESHOLD) {
+          strengthAreas.push('Academic foundation');
+          strengthAreas.push('Test scores');
+        } else if (scores.aptitude < IMPROVEMENT_THRESHOLD) {
+          improvementAreas.push('Academic performance');
+        }
+
+        // Passion
+        if (scores.passion >= STRENGTH_THRESHOLD) {
+          strengthAreas.push('Extracurricular involvement');
+          strengthAreas.push('Leadership experience');
+          strengthAreas.push('Awards & recognition');
+        } else if (scores.passion < IMPROVEMENT_THRESHOLD) {
+          improvementAreas.push('Extracurricular depth');
+        }
+
+        // Community/Service
+        if (scores.community >= STRENGTH_THRESHOLD) {
+          strengthAreas.push('Community service');
+        } else if (scores.community < IMPROVEMENT_THRESHOLD) {
+          improvementAreas.push('Community engagement');
+        }
+
+        // Narrative/Identity
+        if (scores.narrative >= STRENGTH_THRESHOLD) {
+          strengthAreas.push('Personal narrative clarity');
+        } else if (scores.narrative < IMPROVEMENT_THRESHOLD) {
+          improvementAreas.push('Personal narrative development');
+        }
+
+        plan.summary.strengthAreas = strengthAreas;
+        plan.summary.improvementAreas = improvementAreas;
+
+        console.log('Frame5GamePlan: Overrode summary with API scores:', {
+          scores,
+          strengthAreas,
+          improvementAreas,
+        });
+      }
+
+      console.log('Frame5GamePlan: Generated game plan:', plan);
+      return plan;
+    } catch (error) {
+      console.error('Frame5GamePlan: Error generating game plan:', error);
+      // Return a minimal valid game plan structure
+      return {
+        tier: 'fresh-start' as const,
+        tierInfo: {
+          title: 'Getting Started',
+          description: 'Building your profile from scratch.',
+          encouragement: "Every journey begins with a first step!"
+        },
+        totalEstimatedHours: 0,
+        weeklyCommitment: 0,
+        phases: [],
+        quickWins: [],
+        longTermGoals: [],
+        warnings: [],
+        summary: {
+          strengthAreas: [],
+          improvementAreas: [],
+          focusRecommendation: 'Start by exploring activities that interest you.',
+        },
+      };
+    }
+  }, [profile, existingResults]);
+
+  // Get strength-based recommendations
+  const strengthRecs = useMemo(
+    () => getStrengthBasedRecommendations(profile.operating?.strengths),
+    [profile.operating?.strengths]
+  );
+
+  // NEW: Convert real agent data into ActionCard format
+  const agentRecommendations = useMemo(() => {
+    const recommendations: Array<GamePlanAction & { agentId: 'academic' | 'ec' | 'awards' | 'programs' }> = [];
+
+    // Academic recommendations from Dr. Atlas
+    if (academicData?.recommendations?.courses) {
+      academicData.recommendations.courses.forEach((course, index) => {
+        recommendations.push({
+          id: `academic-${index}`,
+          title: course,
+          description: `Recommended by Dr. Atlas to strengthen your academic foundation`,
+          category: 'academics',
+          priority: 'high' as ActionPriority,
+          timeCommitment: '5-10 hrs/week',
+          impact: { pillar: 'aptitude', points: 15 },
+          tips: ['Maintain consistent study habits', 'Seek help from teachers early'],
+          icon: '📚',
+          agentId: 'academic' as const,
+        });
+      });
+    }
+
+    // EC recommendations from Scout
+    if (ecData?.recommendations?.activities) {
+      ecData.recommendations.activities.forEach((activity, index) => {
+        recommendations.push({
+          id: `ec-${index}`,
+          title: activity,
+          description: `Scout identified this as a high-impact opportunity for your profile`,
+          category: 'activities',
+          priority: 'high' as ActionPriority,
+          timeCommitment: '3-5 hrs/week',
+          impact: { pillar: 'passion', points: 20 },
+          tips: ['Focus on depth over breadth', 'Document your impact'],
+          icon: '⚡',
+          agentId: 'ec' as const,
+        });
+      });
+    }
+
+    // Awards recommendations from Valor
+    if (awardsData?.recommendations?.awards) {
+      awardsData.recommendations.awards.forEach((award, index) => {
+        recommendations.push({
+          id: `awards-${index}`,
+          title: award.name,
+          description: `Valor found this ${award.tier}-level opportunity with ${Math.round(award.win_probability * 100)}% win probability`,
+          category: 'awards',
+          priority: award.tier === 'national' ? 'critical' : 'high' as ActionPriority,
+          timeCommitment: '2-4 hrs/week',
+          deadline: award.deadline,
+          impact: { pillar: 'passion', points: award.tier === 'national' ? 30 : 20 },
+          tips: ['Start preparation early', 'Review past winners'],
+          icon: '🏆',
+          agentId: 'awards' as const,
+        });
+      });
+    }
+
+    // Programs recommendations from Navigator
+    if (programsData?.recommendations?.programs) {
+      programsData.recommendations.programs.forEach((program, index) => {
+        recommendations.push({
+          id: `programs-${index}`,
+          title: program.name,
+          description: `Navigator identified this ${program.type} with ${Math.round(program.fit_score * 100)}% fit score`,
+          category: 'summer',
+          priority: 'medium' as ActionPriority,
+          timeCommitment: 'Varies',
+          deadline: program.deadline,
+          impact: { pillar: 'passion', points: 25 },
+          tips: ['Apply early', 'Tailor your application'],
+          icon: '🚀',
+          agentId: 'programs' as const,
+        });
+      });
+    }
+
+    console.log('[Frame5GamePlan] Generated agent recommendations:', recommendations);
+    return recommendations;
+  }, [academicData, ecData, awardsData, programsData]);
+
+  const toggleAction = useCallback((actionId: string) => {
+    setExpandedActions((prev) => {
+      const next = new Set(prev);
+      if (next.has(actionId)) {
+        next.delete(actionId);
+      } else {
+        next.add(actionId);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleComplete = useCallback(() => {
+    // Save game plan to Supabase if authenticated and persistence enabled
+    if (ENABLE_SUPABASE_PERSISTENCE && isAuthenticated && user?.id && !hasSavedRef.current) {
+      hasSavedRef.current = true;
+      console.log('[Frame5GamePlan] Saving game plan to Supabase...');
+
+      // Convert game plan to the format expected by the service
+      const planData: GamePlanData = {
+        summary: {
+          target_tier: gamePlan.tier,
+          current_tier: gamePlan.tier,
+          transformation_path: gamePlan.tierInfo.description,
+        },
+        phases: gamePlan.phases.map((phase) => ({
+          name: phase.title,
+          duration: phase.timeframe,
+          goals: [phase.description],
+          actions: phase.actions.map((a) => a.title),
+        })),
+        // Store full game plan data for UI rendering
+        tierInfo: gamePlan.tierInfo,
+        quickWins: gamePlan.quickWins,
+        longTermGoals: gamePlan.longTermGoals,
+        warnings: gamePlan.warnings,
+        fullSummary: gamePlan.summary,
+        weeklyCommitment: gamePlan.weeklyCommitment,
+        totalEstimatedHours: gamePlan.totalEstimatedHours,
+      };
+
+      saveGamePlan({
+        userId: user.id,
+        planData,
+        targetTier: gamePlan.tier,
+      }).then(async (result) => {
+        if (result.success && result.data?.id) {
+          console.log('[Frame5GamePlan] Game plan saved successfully:', result.data.id);
+
+          // Trigger EC onboarding on the backend to create projects and nudges
+          try {
+            const onboardingResponse = await fetch(
+              `${process.env.NEXT_PUBLIC_AGENT_SERVICE_URL || 'http://localhost:8000'}/api/execution/onboarding/trigger`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  profile_id: user.id,
+                  game_plan_id: result.data.id,
+                }),
+              }
+            );
+            const onboardingResult = await onboardingResponse.json();
+            if (onboardingResult.success) {
+              console.log('[Frame5GamePlan] EC onboarding triggered:', {
+                projects: onboardingResult.projects_created,
+                welcomeNudge: onboardingResult.welcome_nudge_created,
+              });
+            } else {
+              console.warn('[Frame5GamePlan] EC onboarding had issues:', onboardingResult.errors);
+            }
+          } catch (onboardingErr) {
+            console.warn('[Frame5GamePlan] EC onboarding request failed:', onboardingErr);
+          }
+        } else {
+          console.error('[Frame5GamePlan] Failed to save game plan:', result.error);
+        }
+      }).catch((err) => {
+        console.error('[Frame5GamePlan] Error saving game plan:', err);
+      });
+    }
+
+    completeFrame();
+    if (onComplete) {
+      onComplete();
+    } else {
+      nextFrame();
+    }
+  }, [completeFrame, nextFrame, onComplete, isAuthenticated, user?.id, gamePlan]);
+
+  const activePhase = gamePlan.phases[activePhaseIndex];
+
+  return (
+    <div
+      style={{
+        maxWidth: 900,
+        margin: '0 auto',
+        padding: '24px 16px',
+      }}
+    >
+      {/* Header */}
+      <motion.div
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        style={{ textAlign: 'center', marginBottom: 32 }}
+      >
+        <div
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '8px 16px',
+            backgroundColor: BRAND_COLORS.primaryBg,
+            borderRadius: 20,
+            marginBottom: 16,
+          }}
+        >
+          <Target size={18} style={{ color: BRAND_COLORS.primary }} />
+          <span style={{ fontSize: 14, fontWeight: 600, color: BRAND_COLORS.primary }}>
+            Your Personalized Game Plan
+          </span>
+        </div>
+
+        <h1
+          style={{
+            fontSize: 28,
+            fontWeight: 700,
+            color: BRAND_COLORS.textHeading,
+            marginBottom: 8,
+          }}
+        >
+          {gamePlan.tierInfo.title}
+        </h1>
+        <p
+          style={{
+            fontSize: 16,
+            color: BRAND_COLORS.textPrimary,
+            maxWidth: 600,
+            margin: '0 auto',
+          }}
+        >
+          {gamePlan.tierInfo.description}
+        </p>
+      </motion.div>
+
+      {/* Warnings */}
+      {gamePlan.warnings.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          style={{
+            backgroundColor: 'rgba(220, 38, 38, 0.08)',
+            border: '1px solid #dc2626',
+            borderRadius: 12,
+            padding: 16,
+            marginBottom: 24,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <AlertTriangle size={18} style={{ color: '#dc2626' }} />
+            <h3 style={{ fontSize: 15, fontWeight: 600, color: '#dc2626', margin: 0 }}>
+              Important Considerations
+            </h3>
+          </div>
+          <ul style={{ margin: 0, padding: '0 0 0 24px' }}>
+            {gamePlan.warnings.map((warning, i) => (
+              <li
+                key={i}
+                style={{ fontSize: 14, color: BRAND_COLORS.textPrimary, marginBottom: 4 }}
+              >
+                {warning}
+              </li>
+            ))}
+          </ul>
+        </motion.div>
+      )}
+
+      {/* Summary Section */}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        style={{
+          backgroundColor: 'white',
+          border: `1px solid ${BRAND_COLORS.borderLight}`,
+          borderRadius: 16,
+          marginBottom: 24,
+          overflow: 'hidden',
+        }}
+      >
+        <button
+          onClick={() => setShowSummary(!showSummary)}
+          style={{
+            width: '100%',
+            padding: 16,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Sparkles size={20} style={{ color: BRAND_COLORS.primary }} />
+            <span style={{ fontSize: 16, fontWeight: 600, color: BRAND_COLORS.textHeading }}>
+              Your Profile Summary
+            </span>
+          </div>
+          {showSummary ? (
+            <ChevronUp size={20} style={{ color: BRAND_COLORS.textMuted }} />
+          ) : (
+            <ChevronDown size={20} style={{ color: BRAND_COLORS.textMuted }} />
+          )}
+        </button>
+
+        <AnimatePresence>
+          {showSummary && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              style={{ overflow: 'hidden', borderTop: `1px solid ${BRAND_COLORS.borderLight}` }}
+            >
+              <div style={{ padding: 20 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+                  {/* Strengths */}
+                  <div>
+                    <h4
+                      style={{
+                        fontSize: 14,
+                        fontWeight: 600,
+                        color: BRAND_COLORS.success,
+                        marginBottom: 10,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                      }}
+                    >
+                      <CheckCircle size={16} />
+                      Your Strengths
+                    </h4>
+                    {gamePlan.summary.strengthAreas.length > 0 ? (
+                      <ul style={{ margin: 0, padding: '0 0 0 20px' }}>
+                        {gamePlan.summary.strengthAreas.map((area, i) => (
+                          <li
+                            key={i}
+                            style={{ fontSize: 13, color: BRAND_COLORS.textPrimary, marginBottom: 4 }}
+                          >
+                            {area}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p style={{ fontSize: 13, color: BRAND_COLORS.textMuted, margin: 0 }}>
+                        Building from scratch - that's your advantage!
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Areas to Develop */}
+                  <div>
+                    <h4
+                      style={{
+                        fontSize: 14,
+                        fontWeight: 600,
+                        color: BRAND_COLORS.primary,
+                        marginBottom: 10,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                      }}
+                    >
+                      <TrendingUp size={16} />
+                      Areas to Develop
+                    </h4>
+                    {gamePlan.summary.improvementAreas.length > 0 ? (
+                      <ul style={{ margin: 0, padding: '0 0 0 20px' }}>
+                        {gamePlan.summary.improvementAreas.map((area, i) => (
+                          <li
+                            key={i}
+                            style={{ fontSize: 13, color: BRAND_COLORS.textPrimary, marginBottom: 4 }}
+                          >
+                            {area}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p style={{ fontSize: 13, color: BRAND_COLORS.textMuted, margin: 0 }}>
+                        Great coverage across all areas!
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Focus Recommendation */}
+                <div
+                  style={{
+                    marginTop: 20,
+                    padding: 16,
+                    backgroundColor: BRAND_COLORS.primaryBg,
+                    borderRadius: 10,
+                  }}
+                >
+                  <h4
+                    style={{
+                      fontSize: 14,
+                      fontWeight: 600,
+                      color: BRAND_COLORS.textHeading,
+                      marginBottom: 8,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}
+                  >
+                    <Zap size={16} style={{ color: BRAND_COLORS.primary }} />
+                    Your Focus Area
+                  </h4>
+                  <p style={{ fontSize: 14, color: BRAND_COLORS.textPrimary, margin: 0, lineHeight: 1.5 }}>
+                    {gamePlan.summary.focusRecommendation}
+                  </p>
+                </div>
+
+                {/* Time Commitment */}
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: 20,
+                    marginTop: 20,
+                    paddingTop: 16,
+                    borderTop: `1px solid ${BRAND_COLORS.borderLight}`,
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Clock size={18} style={{ color: BRAND_COLORS.textMuted }} />
+                    <span style={{ fontSize: 13, color: BRAND_COLORS.textMuted }}>
+                      Weekly commitment:{' '}
+                      <strong style={{ color: BRAND_COLORS.textPrimary }}>
+                        ~{gamePlan.weeklyCommitment} hrs/week
+                      </strong>
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Target size={18} style={{ color: BRAND_COLORS.textMuted }} />
+                    <span style={{ fontSize: 13, color: BRAND_COLORS.textMuted }}>
+                      Actions:{' '}
+                      <strong style={{ color: BRAND_COLORS.textPrimary }}>
+                        {gamePlan.phases.reduce((t, p) => t + p.actions.length, 0)} total
+                      </strong>
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.div>
+
+      {/* Strength-Based Recommendations */}
+      {strengthRecs.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          style={{
+            backgroundColor: 'rgba(22, 163, 74, 0.08)',
+            border: `1px solid ${BRAND_COLORS.success}`,
+            borderRadius: 12,
+            padding: 16,
+            marginBottom: 24,
+          }}
+        >
+          <h3
+            style={{
+              fontSize: 15,
+              fontWeight: 600,
+              color: BRAND_COLORS.success,
+              marginBottom: 12,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
+            <Star size={18} />
+            Activities Based on Your Strengths
+          </h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {strengthRecs.slice(0, 3).map((rec, i) => (
+              <div
+                key={i}
+                style={{
+                  backgroundColor: 'white',
+                  padding: 12,
+                  borderRadius: 8,
+                }}
+              >
+                <p
+                  style={{
+                    fontSize: 14,
+                    fontWeight: 600,
+                    color: BRAND_COLORS.textHeading,
+                    margin: 0,
+                    marginBottom: 4,
+                  }}
+                >
+                  {rec.activity}
+                </p>
+                <p style={{ fontSize: 13, color: BRAND_COLORS.textMuted, margin: 0 }}>
+                  {rec.rationale}
+                </p>
+              </div>
+            ))}
+          </div>
+        </motion.div>
+      )}
+
+      {/* Phase Selector */}
+      {gamePlan.phases.length > 0 && (
+        <>
+          <div
+            style={{
+              display: 'flex',
+              gap: 12,
+              overflowX: 'auto',
+              paddingBottom: 8,
+              marginBottom: 20,
+            }}
+          >
+            {gamePlan.phases.map((phase, i) => (
+              <PhaseCard
+                key={phase.id}
+                phase={phase}
+                isActive={i === activePhaseIndex}
+                onSelect={() => setActivePhaseIndex(i)}
+              />
+            ))}
+          </div>
+
+          {/* Active Phase Content */}
+          {activePhase && (
+            <motion.div
+              key={activePhase.id}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.2 }}
+            >
+              <div style={{ marginBottom: 16 }}>
+                <h3
+                  style={{
+                    fontSize: 18,
+                    fontWeight: 600,
+                    color: BRAND_COLORS.textHeading,
+                    marginBottom: 4,
+                  }}
+                >
+                  {activePhase.title}
+                </h3>
+                <p style={{ fontSize: 14, color: BRAND_COLORS.textMuted, margin: 0 }}>
+                  {activePhase.description}
+                </p>
+              </div>
+
+              {/* Actions */}
+              <div>
+                {activePhase.actions.map((action) => (
+                  <ActionCard
+                    key={action.id}
+                    action={action}
+                    expanded={expandedActions.has(action.id)}
+                    onToggle={() => toggleAction(action.id)}
+                  />
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </>
+      )}
+
+      {/* Quick Wins Section */}
+      {gamePlan.quickWins.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+          style={{
+            backgroundColor: 'white',
+            border: `1px solid ${BRAND_COLORS.borderLight}`,
+            borderRadius: 16,
+            padding: 20,
+            marginTop: 24,
+          }}
+        >
+          <h3
+            style={{
+              fontSize: 16,
+              fontWeight: 600,
+              color: BRAND_COLORS.textHeading,
+              marginBottom: 16,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
+            <Zap size={18} style={{ color: BRAND_COLORS.primary }} />
+            Quick Wins - Start Today
+          </h3>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+            {gamePlan.quickWins.slice(0, 4).map((action) => (
+              <div
+                key={action.id}
+                style={{
+                  backgroundColor: BRAND_COLORS.primaryBg,
+                  padding: '10px 14px',
+                  borderRadius: 8,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                }}
+              >
+                <span>{action.icon}</span>
+                <span style={{ fontSize: 13, color: BRAND_COLORS.textPrimary }}>{action.title}</span>
+              </div>
+            ))}
+          </div>
+        </motion.div>
+      )}
+
+      {/* Action Buttons */}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.3 }}
+        style={{
+          marginTop: 32,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: 16,
+        }}
+      >
+        {/* Complete Button */}
+        <button
+          onClick={handleComplete}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '14px 32px',
+            background: `linear-gradient(135deg, ${BRAND_COLORS.primary}, #ff6b4a)`,
+            border: 'none',
+            borderRadius: 10,
+            color: 'white',
+            fontSize: 16,
+            fontWeight: 600,
+            cursor: 'pointer',
+            boxShadow: '0 4px 12px rgba(254, 74, 34, 0.3)',
+          }}
+        >
+          Continue to Results
+          <ArrowRight size={18} />
+        </button>
+      </motion.div>
+
+      {/* Coach Booking Section */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.4 }}
+        style={{ marginTop: 32 }}
+      >
+        <CoachBooking compact />
+      </motion.div>
+
+      {/* Encouragement Footer */}
+      <motion.p
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.5 }}
+        style={{
+          textAlign: 'center',
+          fontSize: 14,
+          color: BRAND_COLORS.textMuted,
+          marginTop: 24,
+          fontStyle: 'italic',
+        }}
+      >
+        {gamePlan.tierInfo.encouragement}
+      </motion.p>
+    </div>
+  );
+}
+
+export default Frame5GamePlan;

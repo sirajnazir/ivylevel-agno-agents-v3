@@ -51,50 +51,119 @@ def get_supabase_client():
 def read_student_profile(student_id: str) -> Optional[Dict[str, Any]]:
     """
     Read a student's profile from the database.
-    
+
     IMPLEMENTS: Part of DB-001 access
-    
+
+    Lookup Strategy (handles both old and new ID formats):
+    1. First try lookup by profile `id` (new format)
+    2. Fallback to lookup by `user_id` (auth user ID, what frontend often sends)
+
     Args:
-        student_id: UUID of the student
-        
+        student_id: UUID - could be profile id OR user_id from auth
+
     Returns:
         Student profile dict or None if not found
     """
     client = get_supabase_client()
     if client is None:
         return None
-    
+
+    # Strategy 1: Try lookup by profile `id`
     try:
-        response = client.table("profiles").select("*").eq("id", student_id).single().execute()
-        return response.data
+        response = client.table("profiles").select("*").eq("id", student_id).maybe_single().execute()
+        if response and response.data:
+            return response.data
+    except Exception:
+        pass  # Silent fail, will try user_id next
+
+    # Strategy 2: Fallback to lookup by `user_id` (common from frontend)
+    try:
+        response = client.table("profiles").select("*").eq("user_id", student_id).maybe_single().execute()
+        if response.data:
+            print(f"✅ Profile found via user_id fallback for {student_id}")
+            return response.data
     except Exception as e:
-        print(f"Error reading profile: {e}")
-        return None
+        print(f"Profile lookup by user_id also failed: {e}")
+
+    print(f"❌ No profile found for id/user_id: {student_id}")
+    return None
 
 
 def update_student_profile(student_id: str, updates: Dict[str, Any]) -> bool:
     """
     Update a student's profile in the database.
-    
+
     IMPLEMENTS: Part of DB-001 access
-    
+
+    Lookup Strategy (handles both id and user_id):
+    1. First try update by profile `id`
+    2. Fallback to update by `user_id`
+
     Args:
-        student_id: UUID of the student
+        student_id: UUID - could be profile id OR user_id from auth
         updates: Dict of fields to update
-        
+
     Returns:
         True if successful, False otherwise
     """
     client = get_supabase_client()
     if client is None:
         return False
-    
+
+    # Strategy 1: Try update by profile `id`
     try:
-        client.table("profiles").update(updates).eq("id", student_id).execute()
-        return True
+        result = client.table("profiles").update(updates).eq("id", student_id).execute()
+        if result.data:
+            return True
+    except Exception:
+        pass
+
+    # Strategy 2: Fallback to update by `user_id`
+    try:
+        result = client.table("profiles").update(updates).eq("user_id", student_id).execute()
+        if result.data:
+            print(f"✅ Profile updated via user_id fallback for {student_id}")
+            return True
     except Exception as e:
         print(f"Error updating profile: {e}")
+
+    return False
+
+
+def delete_student_data(student_id: str) -> bool:
+    """
+    Delete all data for a student.
+
+    Lookup Strategy: Try both `id` and `user_id` for deletion.
+
+    Args:
+        student_id: UUID - could be profile id OR user_id from auth
+
+    Returns:
+        True if successful, False otherwise
+    """
+    client = get_supabase_client()
+    if client is None:
         return False
+
+    # Strategy 1: Try delete by profile `id`
+    try:
+        result = client.table("profiles").delete().eq("id", student_id).execute()
+        if result.data:
+            return True
+    except Exception:
+        pass
+
+    # Strategy 2: Fallback to delete by `user_id`
+    try:
+        result = client.table("profiles").delete().eq("user_id", student_id).execute()
+        if result.data:
+            print(f"✅ Profile deleted via user_id fallback for {student_id}")
+            return True
+    except Exception as e:
+        print(f"Error deleting user data: {e}")
+
+    return False
 
 
 def read_student_patterns(student_id: str) -> List[Dict[str, Any]]:
