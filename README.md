@@ -2,6 +2,12 @@
 
 > **Architecture:** Agno + Supabase + FastAPI  
 > **Pattern:** Plug-and-Play Agent System
+Key enhancements:
+Agents work with coaches to:
+- Surface high-leverage student signals continuously
+- Recommend next actions with confidence scores and evidence
+- Route high-stakes decisions to human judgment
+- Preserve coach intelligence as the system's anchor
 
 ## 🏗️ The 4-Tier Architecture
 
